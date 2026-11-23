@@ -394,3 +394,145 @@ describe('Continuidade da partida', () => {
     expect(() => final.jogar(1, carta('A'))).toThrow('Partida encerrada');
   });
 });
+
+// Gerador pseudoaleatório reproduzível (mulberry32): a mesma semente gera sempre a mesma sequência.
+function aleatorioComSemente(semente) {
+  let estado = semente >>> 0;
+  return () => {
+    estado = (estado + 0x6d2b79f5) >>> 0;
+    let t = estado;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const outro = (jogador) => (jogador === 1 ? 2 : 1);
+
+// Cartas que estão na mão dos dois jogadores mais a vira: 7 cartas que não podem se repetir.
+function cartasEmJogo(jogo) {
+  return [...jogo.mao(1), ...jogo.mao(2), jogo.vira];
+}
+
+describe('Simulações completas', () => {
+  const LIMITE_DE_MAOS = 500; // segurança: evita laço infinito se alguma partida nunca terminar
+
+  // Joga uma mão inteira de forma automática: baixa cartas sorteadas e, às vezes, pede truco
+  // (o adversário aceita ou corre). Devolve a quantidade de pontos que a mão valeu.
+  function jogarMao(jogo, sorteio) {
+    while (jogo.estado === 'jogando') {
+      if (jogo.pedidoTruco !== null) {
+        jogo.responderTruco(outro(jogo.pedidoTruco.solicitante), sorteio() < 0.3 ? 'correr' : 'aceitar');
+      } else if (jogo.valorMao < 12 && sorteio() < 0.15) {
+        jogo.pedirTruco(jogo.vez);
+      } else {
+        const cartas = jogo.mao(jogo.vez);
+        jogo.jogar(jogo.vez, cartas[Math.floor(sorteio() * cartas.length)]);
+      }
+    }
+    return jogo.valorMao;
+  }
+
+  test('uma partida completa disputa várias mãos até alguém alcançar 12 pontos', () => {
+    let partidasComVariasMaos = 0;
+    for (let semente = 1; semente <= 30; semente++) {
+      const sorteio = aleatorioComSemente(semente);
+      const jogo = new Truco({ aleatorio: sorteio });
+      let maos = 0;
+
+      while (jogo.estado !== 'fim' && maos < LIMITE_DE_MAOS) {
+        const antes = jogo.pontuacao;
+        const valor = jogarMao(jogo, sorteio);
+        maos++;
+
+        // somente quem venceu a mão pontua, e pelo valor em que ela terminou
+        const depois = jogo.pontuacao;
+        const vencedorMao = jogo.vencedorMao;
+        expect(depois[vencedorMao - 1]).toBe(antes[vencedorMao - 1] + valor);
+        expect(depois[outro(vencedorMao) - 1]).toBe(antes[outro(vencedorMao) - 1]);
+
+        if (jogo.estado === 'fim-mao') jogo.novaMao({ aleatorio: sorteio });
+      }
+
+      expect(maos).toBeLessThan(LIMITE_DE_MAOS);
+      expect(jogo.estado).toBe('fim');
+      expect(jogo.pontuacao[jogo.vencedor - 1]).toBeGreaterThanOrEqual(12);
+      expect(jogo.pontuacao[outro(jogo.vencedor) - 1]).toBeLessThan(12);
+      if (maos > 1) partidasComVariasMaos++;
+    }
+    expect(partidasComVariasMaos).toBeGreaterThan(0);
+  });
+
+  test('a recusa depois de um aumento já aceito dá ao solicitante o valor atual da mão', () => {
+    // truco (3) aceito; depois, o pedido de seis é recusado: o solicitante recebe 3, e não 6
+    const tres = jogoCom(
+      [carta('3'), carta('2'), carta('A')],
+      [carta('7'), carta('6'), carta('K')],
+    );
+    tres.pedirTruco(1);
+    tres.responderTruco(2, 'aceitar');
+    expect(tres.valorMao).toBe(3);
+    tres.jogar(1, carta('3'));
+    expect(tres.pedirTruco(2)).toEqual({ solicitante: 2, valorProposto: 6 });
+    tres.responderTruco(1, 'correr');
+    expect(tres.estado).toBe('fim-mao');
+    expect(tres.vencedorMao).toBe(2);
+    expect(tres.pontuacao).toEqual([0, 3]);
+
+    // seis aceito; depois, o pedido de nove é recusado: o solicitante recebe 6
+    const seis = jogoCom(
+      [carta('3'), carta('2'), carta('A')],
+      [carta('7'), carta('6'), carta('K')],
+    );
+    seis.pedirTruco(1);
+    seis.responderTruco(2, 'aceitar');
+    seis.jogar(1, carta('3'));
+    seis.pedirTruco(2);
+    seis.responderTruco(1, 'aceitar');
+    expect(seis.valorMao).toBe(6);
+    seis.jogar(2, carta('7')); // fecha a primeira rodada
+    const solicitante = seis.vez;
+    expect(seis.pedirTruco(solicitante)).toEqual({ solicitante, valorProposto: 9 });
+    seis.responderTruco(outro(solicitante), 'correr');
+    expect(seis.vencedorMao).toBe(solicitante);
+    expect(seis.pontuacao[solicitante - 1]).toBe(6);
+    expect(seis.pontuacao[outro(solicitante) - 1]).toBe(0);
+  });
+
+  test('o jogador que começa a mão alterna em várias mãos consecutivas', () => {
+    const sorteio = aleatorioComSemente(7);
+    const jogo = new Truco({ aleatorio: sorteio });
+    const quemComeca = [];
+
+    for (let mao = 0; mao < 6; mao++) {
+      const iniciador = jogo.vez;
+      quemComeca.push(iniciador);
+      // quem começa pede truco e o adversário corre: a mão termina valendo 1 ponto para quem começou
+      jogo.pedirTruco(iniciador);
+      jogo.responderTruco(outro(iniciador), 'correr');
+      if (jogo.estado === 'fim-mao') jogo.novaMao({ aleatorio: sorteio });
+    }
+
+    expect(quemComeca).toEqual([1, 2, 1, 2, 1, 2]);
+    expect(jogo.pontuacao).toEqual([3, 3]);
+  });
+
+  test('em 100 distribuições aleatórias as cartas entregues e a vira nunca se repetem', () => {
+    for (let semente = 1; semente <= 100; semente++) {
+      const sorteio = aleatorioComSemente(semente);
+      const jogo = new Truco({ aleatorio: sorteio });
+      for (let mao = 0; mao < 3; mao++) {
+        const cartas = cartasEmJogo(jogo);
+        expect(cartas).toHaveLength(7);
+        expect(new Set(cartas.map(chave)).size).toBe(7);
+        cartas.forEach((item) => expect(criarBaralho().map(chave)).toContain(chave(item)));
+
+        // nova mão: o solicitante vence correndo o adversário, e as cartas são sorteadas de novo
+        const solicitante = jogo.vez;
+        jogo.pedirTruco(solicitante);
+        jogo.responderTruco(outro(solicitante), 'correr');
+        jogo.novaMao({ aleatorio: sorteio });
+      }
+    }
+  });
+});
