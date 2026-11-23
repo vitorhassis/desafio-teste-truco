@@ -1,0 +1,25 @@
+{
+  "name": "desafio-teste-truco",
+  "version": "1.0.0",
+  "description": "Truco Paulista para dois jogadores com testes automatizados em Jest",
+  "main": "src/truco.js",
+  "scripts": {
+    "test": "jest --coverage --runInBand"
+  },
+  "license": "MIT",
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": ["src/**/*.js"],
+    "coverageThreshold": {
+      "global": {
+        "branches": 100,
+        "functions": 100,
+        "lines": 100,
+        "statements": 100
+      }
+    }
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
