@@ -235,6 +235,38 @@ describe('Resultado da mão', () => {
     expect(jogo.vencedorMao).toBe(1);
   });
 
+  test('o jogador dois também encerra a mão ao vencer duas rodadas', () => {
+    const jogo = jogoCom(
+      [carta('4'), carta('6'), carta('A')],
+      [carta('3'), carta('2'), carta('K')],
+    );
+    jogo.jogar(1, carta('4')); jogo.jogar(2, carta('3'));
+    jogo.jogar(2, carta('2')); jogo.jogar(1, carta('6'));
+    expect(jogo.vencedorMao).toBe(2);
+    expect(jogo.pontuacao).toEqual([0, 1]);
+  });
+
+  test('empate na segunda rodada mantém a vitória obtida na primeira', () => {
+    const jogo = jogoCom(
+      [carta('3'), carta('A', 'ouros'), carta('6')],
+      [carta('2'), carta('A', 'paus'), carta('7')],
+    );
+    jogo.jogar(1, carta('3')); jogo.jogar(2, carta('2'));
+    jogo.jogar(1, carta('A', 'ouros')); jogo.jogar(2, carta('A', 'paus'));
+    expect(jogo.vencedorMao).toBe(1);
+  });
+
+  test('depois de dois empates a terceira rodada define a mão', () => {
+    const jogo = jogoCom(
+      [carta('A', 'ouros'), carta('K', 'ouros'), carta('4')],
+      [carta('A', 'paus'), carta('K', 'paus'), carta('3')],
+    );
+    jogo.jogar(1, carta('A', 'ouros')); jogo.jogar(2, carta('A', 'paus'));
+    jogo.jogar(1, carta('K', 'ouros')); jogo.jogar(2, carta('K', 'paus'));
+    jogo.jogar(1, carta('4')); jogo.jogar(2, carta('3'));
+    expect(jogo.vencedorMao).toBe(2);
+  });
+
   test('ao alcançar 12 pontos a partida termina', () => {
     const jogo = jogoCom(
       [carta('3'), carta('2'), carta('A')],
@@ -316,6 +348,14 @@ describe('Pedidos de truco', () => {
     expect(() => jogo.pedirTruco(1)).toThrow('Já existe um pedido');
     expect(() => jogo.responderTruco(1, 'aceitar')).toThrow('Somente o adversário');
     expect(() => jogo.responderTruco(2, 'talvez')).toThrow(RangeError);
+  });
+
+  test('somente quem está na vez pode pedir truco', () => {
+    const jogo = jogoCom(
+      [carta('3'), carta('2'), carta('A')],
+      [carta('7'), carta('6'), carta('K')],
+    );
+    expect(() => jogo.pedirTruco(2)).toThrow('Não é a vez');
   });
 });
 
